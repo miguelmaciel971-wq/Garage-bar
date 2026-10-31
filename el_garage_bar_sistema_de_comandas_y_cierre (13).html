@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Garage Bar - Sistema de Comandas</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS Excel Library -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- QR Code Generator Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- HTML5 QR Code Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- Supabase JS Library for Instant Cloud Sync -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        @media print {
+            body * { visibility: hidden; }
+            #printable-ticket, #printable-ticket * { visibility: visible; }
+            #printable-ticket { position: absolute; left: 0; top: 0; width: 100%; color: #000; }
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col text-slate-100 bg-slate-900">
+
+    <!-- Header / Navbar -->
+    <header class="bg-slate-950 text-white border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <!-- App Title -->
+                <div class="flex items-center space-x-3">
+                    <div class="bg-amber-500 p-2.5 rounded-xl text-slate-950 shadow-md">
+                        <i class="fa-solid fa-beer-mug-empty text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-base font-bold leading-tight tracking-wide text-amber-400">El Garage Bar</h1>
+                        <p class="text-[11px] text-slate-400">Gestión de Salón & Cierre Diario</p>
+                    </div>
+                </div>
+
+                <!-- Sync Room Input -->
+                <div class="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800 text-xs">
+                    <span id="sync-status-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-slate-400 font-medium">Servidor Cloud:</span>
+                    <input type="text" id="sync-room-id" value="garage123" onchange="initCloudSync()" class="bg-slate-950 border border-slate-700 text-amber-400 text-xs px-2 py-0.5 rounded font-mono font-bold focus:outline-none focus:border-amber-400 w-24">
+                    <button onclick="forceCloudSync()" title="Sincronizar ahora" class="text-slate-400 hover:text-amber-400 px-1">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                    </button>
+                    <button onclick="openScanQRModal()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1 rounded-lg flex items-center space-x-1.5 shadow transition ml-1">
+                        <i class="fa-solid fa-qrcode"></i>
+                        <span class="hidden md:inline">Escanear QR</span>
+                    </button>
+                </div>
+
+                <!-- Nav Tabs -->
+                <nav class="flex space-x-1 sm:space-x-2">
+                    <button id="nav-tables" onclick="switchView('tables')" class="px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition flex items-center space-x-2 bg-indigo-600 text-white shadow">
+                        <i class="fa-solid fa-chair"></i>
+                        <span class="hidden sm:inline">Salón</span>
+                    </button>
+                    <button id="nav-kitchen" onclick="switchView('kitchen')" class="relative px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-slate-300">
+                        <i class="fa-solid fa-fire-burner"></i>
+                        <span class="hidden sm:inline">Cocina</span>
+                        <span id="kitchen-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">0</span>
+                    </button>
+                    <button id="nav-menu" onclick="switchView('menu')" class="px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-slate-300">
+                        <i class="fa-solid fa-book-open"></i>
+                        <span class="hidden sm:inline">Menú</span>
+                    </button>
+                    <button id="nav-cierre" onclick="switchView('cierre')" class="px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-emerald-400">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span class="hidden sm:inline">Cierre</span>
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- ================= VIEW 1: TABLES GRID ================= -->
+        <section id="view-tables" class="space-y-6">
+            <!-- Controls Toolbar -->
+            <div class="bg-slate-950 p-4 rounded-2xl shadow-sm border border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <!-- Status Legend -->
+                <div class="flex flex-wrap items-center gap-3 text-xs font-semibold">
+                    <span class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded-full bg-emerald-500"></span><span class="text-slate-300">Libre</span></span>
+                    <span class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded-full bg-amber-500"></span><span class="text-slate-300">Pendiente</span></span>
+                    <span class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded-full bg-blue-500"></span><span class="text-slate-300">En Cocina</span></span>
+                    <span class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded-full bg-purple-500"></span><span class="text-slate-300">Listo p/ Servir</span></span>
+                    <span class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded-full bg-indigo-500"></span><span class="text-slate-300">Servido / Ocupado</span></span>
+                </div>
+                <!-- Action Buttons -->
+                <button onclick="openAddTableModal()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Nueva Mesa</span>
+                </button>
+            </div>
+
+            <!-- Grid of Tables -->
+            <div id="tables-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Rendered dynamically -->
+            </div>
+        </section>
+
+        <!-- ================= VIEW 2: KITCHEN DISPLAY ================= -->
+        <section id="view-kitchen" class="hidden space-y-6">
+            <div class="flex justify-between items-center bg-slate-950 p-4 rounded-2xl shadow-sm border border-slate-800">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">Comandas en Cocina (KDS)</h2>
+                    <p class="text-xs text-slate-400">Ordenadas por tiempo de espera</p>
+                </div>
+                <div class="text-xs text-slate-300 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800 font-semibold">
+                    <i class="fa-regular fa-clock text-amber-400 mr-1"></i> En Tiempo Real
+                </div>
+            </div>
+
+            <div id="kitchen-orders-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Rendered dynamically -->
+            </div>
+        </section>
+
+        <!-- ================= VIEW 3: MENU MANAGEMENT ================= -->
+        <section id="view-menu" class="hidden space-y-6">
+            <div class="bg-slate-950 p-6 rounded-2xl shadow-sm border border-slate-800 space-y-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-100">Carta / Menú de El Garage Bar</h2>
+                        <p class="text-xs text-slate-400">Agrega o elimina productos de la carta</p>
+                    </div>
+                    <button onclick="openAddItemModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center space-x-2 shadow-lg">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Nuevo Producto</span>
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-800 bg-slate-900 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                                <th class="p-3">Categoría</th>
+                                <th class="p-3">Nombre</th>
+                                <th class="p-3">Precio</th>
+                                <th class="p-3 text-right">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="menu-table-body" class="divide-y divide-slate-800 text-sm">
+                            <!-- Rendered dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= VIEW 4: CIERRE DEL DIA ================= -->
+        <section id="view-cierre" class="hidden space-y-6">
+            <div class="bg-slate-950 p-6 rounded-2xl shadow-sm border border-slate-800 space-y-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-100">Cierre de Caja del Día</h2>
+                        <p class="text-xs text-slate-400">Registro detallado de mesas cobradas</p>
+                    </div>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <button onclick="exportarExcelCierre()" class="flex-1 sm:flex-initial bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg">
+                            <i class="fa-solid fa-file-excel"></i>
+                            <span>Exportar Excel (.xlsx)</span>
+                        </button>
+                        <button onclick="reiniciarDia()" class="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg">
+                            <i class="fa-solid fa-rotate-left"></i>
+                            <span>Nuevo Día</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Resumen Cards -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                        <span class="text-xs text-slate-400 font-medium">Total Recaudado</span>
+                        <div id="cierre-total-monto" class="text-2xl font-bold text-emerald-400 mt-1">$0.00</div>
+                    </div>
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                        <span class="text-xs text-slate-400 font-medium">Mesas Cobradas</span>
+                        <div id="cierre-total-mesas" class="text-2xl font-bold text-amber-400 mt-1">0</div>
+                    </div>
+                    <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                        <span class="text-xs text-slate-400 font-medium">Ítems Vendidos</span>
+                        <div id="cierre-total-items" class="text-2xl font-bold text-indigo-400 mt-1">0</div>
+                    </div>
+                </div>
+
+                <!-- Tabla Ventas -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-800 bg-slate-900 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                                <th class="p-3">Hora</th>
+                                <th class="p-3">Mesa</th>
+                                <th class="p-3">Detalle Consumo</th>
+                                <th class="p-3 text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cierre-table-body" class="divide-y divide-slate-800 text-sm">
+                            <!-- Rendered dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ================= MODALS ================= -->
+
+    <!-- Modal 1: Table Order (Tomar Comanda) -->
+    <div id="modal-order" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 flex items-center justify-center p-2 sm:p-4">
+        <div class="bg-slate-900 w-full max-w-4xl h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-800">
+            <div class="bg-slate-950 text-white p-4 flex justify-between items-center border-b border-slate-800">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-amber-500 text-slate-950 px-3 py-1 rounded-lg text-lg font-bold" id="modal-table-title">Mesa 1</div>
+                    <span id="modal-table-status-badge" class="text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-500 text-white">Libre</span>
+                </div>
+                <button onclick="closeOrderModal()" class="text-slate-400 hover:text-white text-xl p-1">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-900">
+                <!-- Left Column: Menu Picker -->
+                <div class="w-full md:w-3/5 p-4 flex flex-col h-1/2 md:h-full border-b md:border-b-0 md:border-r border-slate-800">
+                    <div id="category-tabs" class="flex space-x-2 overflow-x-auto pb-2 mb-3">
+                        <!-- Dynamic categories -->
+                    </div>
+
+                    <div class="mb-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2">
+                        <input type="text" id="custom-item-name" placeholder="Item rápido" class="text-xs sm:text-sm flex-1 px-2.5 py-1.5 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:border-amber-400">
+                        <input type="number" id="custom-item-price" placeholder="$" class="w-20 text-xs sm:text-sm px-2.5 py-1.5 bg-slate-900 border border-slate-700 text-white rounded-lg focus:outline-none focus:border-amber-400">
+                        <button onclick="addCustomItemToOrder()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs px-3 py-2 rounded-lg font-bold transition">
+                            <i class="fa-solid fa-plus"></i>
+                        </button>
+                    </div>
+
+                    <div id="menu-grid" class="flex-1 overflow-y-auto grid grid-cols-2 gap-2.5 pr-1">
+                        <!-- Dynamic menu items -->
+                    </div>
+                </div>
+
+                <!-- Right Column: Current Order Items -->
+                <div class="w-full md:w-2/5 p-4 flex flex-col h-1/2 md:h-full bg-slate-950">
+                    <h3 class="font-bold text-slate-100 text-sm mb-3">Detalle de Comanda</h3>
+
+                    <div id="order-items-list" class="flex-1 overflow-y-auto space-y-2.5 pr-1">
+                        <!-- Dynamic items -->
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-800 space-y-3 mt-2">
+                        <div class="flex justify-between items-center text-slate-100 text-base font-bold">
+                            <span>Total</span>
+                            <span id="order-total" class="text-amber-400 text-xl">$0.00</span>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 pt-1">
+                            <button onclick="sendOrderToKitchen()" class="bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs py-2.5 rounded-xl transition flex flex-col items-center justify-center shadow-md">
+                                <i class="fa-solid fa-qrcode mb-1"></i>
+                                <span>Generar QR</span>
+                            </button>
+                            <button onclick="marcarMesaServida()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2.5 rounded-xl transition flex flex-col items-center justify-center shadow-md">
+                                <i class="fa-solid fa-utensils mb-1"></i>
+                                <span>Servido</span>
+                            </button>
+                            <button onclick="openTicketModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2.5 rounded-xl transition flex flex-col items-center justify-center shadow-md">
+                                <i class="fa-solid fa-receipt mb-1"></i>
+                                <span>Pre-cuenta</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 5: QR Code Display (Para Celular del Mozo) -->
+    <div id="modal-qr-display" class="hidden fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 w-full max-w-sm rounded-2xl border border-amber-500/30 shadow-2xl p-6 flex flex-col items-center text-center space-y-4">
+            <h3 class="text-lg font-bold text-amber-400" id="qr-table-title">Mesa Comanda</h3>
+            <p class="text-xs text-slate-300">Muestra este código a la pantalla de la PC para transferir la comanda al instante</p>
+            
+            <div id="qrcode-container" class="bg-white p-4 rounded-2xl shadow-inner flex items-center justify-center"></div>
+
+            <div class="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-300 text-xs">
+                <span>Código Manual: </span>
+                <span id="qr-manual-code" class="font-mono font-bold text-amber-400 text-sm select-all"></span>
+            </div>
+
+            <button onclick="closeQRDisplayModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-2.5 rounded-xl text-xs transition">
+                Cerrar
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal 6: Scanner QR / Entrada Manual (Para Computadora / Cocina) -->
+    <div id="modal-qr-scan" class="hidden fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 w-full max-w-md rounded-2xl border border-slate-800 shadow-2xl p-6 flex flex-col space-y-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-base font-bold text-slate-100"><i class="fa-solid fa-camera mr-2 text-amber-400"></i>Cargar Comanda desde Celular</h3>
+                <button onclick="closeScanQRModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Cam Scanner Container -->
+            <div id="qr-reader" class="w-full bg-slate-950 rounded-xl overflow-hidden border border-slate-800 min-h-[200px]"></div>
+
+            <div class="text-center text-xs text-slate-400 font-semibold border-t border-b border-slate-800 py-2">
+                O ingresa el código manual de la comanda
+            </div>
+
+            <div class="flex gap-2">
+                <input type="text" id="manual-code-input" placeholder="Pega el código aquí..." class="flex-1 bg-slate-950 border border-slate-700 text-amber-400 font-mono text-xs px-3 py-2 rounded-xl focus:outline-none focus:border-amber-400">
+                <button onclick="processManualCode()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 text-xs rounded-xl transition">
+                    Cargar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: Add Table -->
+    <div id="modal-add-table" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 w-full max-w-sm rounded-2xl border border-slate-800 shadow-xl p-6 space-y-4">
+            <h3 class="text-lg font-bold text-slate-100">Agregar Nueva Mesa</h3>
+            <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Nombre / Número de Mesa</label>
+                <input type="text" id="new-table-name" placeholder="Ej: Mesa 6 o Barra 3" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 text-white rounded-xl focus:outline-none focus:border-indigo-500 text-sm">
+            </div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeAddTableModal()" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:bg-slate-800 rounded-xl">Cancelar</button>
+                <button onclick="saveNewTable()" class="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 3: Add Item to Menu -->
+    <div id="modal-add-item" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 w-full max-w-md rounded-2xl border border-slate-800 shadow-xl p-6 space-y-4">
+            <h3 class="text-lg font-bold text-slate-100">Nuevo Producto para la Carta</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Categoría</label>
+                    <select id="new-item-category" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 text-white rounded-xl focus:outline-none focus:border-emerald-500 text-sm">
+                        <option value="Comidas">Comidas</option>
+                        <option value="Bebidas">Bebidas</option>
+                        <option value="Tragos">Tragos</option>
+                        <option value="Postres">Postres</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Nombre del Producto</label>
+                    <input type="text" id="new-item-name" placeholder="Ej: Pinta IPA" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 text-white rounded-xl focus:outline-none focus:border-emerald-500 text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Precio ($)</label>
+                    <input type="number" step="0.01" id="new-item-price" placeholder="Ej: 3500" class="w-full px-3 py-2 bg-slate-950 border border-slate-700 text-white rounded-xl focus:outline-none focus:border-emerald-500 text-sm">
+                </div>
+            </div>
+            <div class="flex justify-end space-x-2 pt-2">
+                <button onclick="closeAddItemModal()" class="px-4 py-2 text-xs font-semibold text-slate-400 hover:bg-slate-800 rounded-xl">Cancelar</button>
+                <button onclick="saveNewMenuItem()" class="px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 4: Ticket / Payment -->
+    <div id="modal-ticket" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-slate-900">
+            <div class="p-4 bg-slate-100 border-b border-slate-200 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800">Pre-cuenta / Ticket</h3>
+                <button onclick="closeTicketModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div id="printable-ticket" class="p-6 overflow-y-auto space-y-4 font-mono text-xs text-slate-900">
+                <div class="text-center space-y-1 border-b border-dashed border-slate-300 pb-3">
+                    <h2 class="font-bold text-base uppercase tracking-wider">EL GARAGE BAR</h2>
+                    <p class="text-slate-500">Ticket de Pre-Cuenta</p>
+                    <p id="ticket-date" class="text-[10px] text-slate-400"></p>
+                    <p id="ticket-table-name" class="font-bold text-sm text-slate-800 mt-1"></p>
+                </div>
+
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="border-b border-slate-200">
+                            <th class="py-1">Cant</th>
+                            <th class="py-1">Item</th>
+                            <th class="py-1 text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ticket-items-body" class="divide-y divide-slate-100">
+                        <!-- Dynamic ticket items -->
+                    </tbody>
+                </table>
+
+                <div class="border-t border-dashed border-slate-300 pt-3 space-y-1 text-right">
+                    <div class="text-sm font-bold flex justify-between">
+                        <span>TOTAL:</span>
+                        <span id="ticket-total-amount">$0.00</span>
+                    </div>
+                </div>
+
+                <div class="text-center text-[10px] text-slate-400 pt-4">
+                    <p>¡Muchas gracias por elegir El Garage Bar!</p>
+                </div>
+            </div>
+
+            <div class="p-4 bg-slate-50 border-t border-slate-200 flex flex-col gap-2">
+                <button onclick="printTicket()" class="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-print"></i>
+                    <span>Imprimir Ticket</span>
+                </button>
+                <button onclick="checkoutAndFreeTable()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-check"></i>
+                    <span>Cobrar y Liberar Mesa</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+    <!-- ================= JAVASCRIPT LOGIC ================= -->
+    <script>
+        const DEFAULT_MENU = [
+            { id: 1, name: "Hamburguesa Completa", category: "Comidas", price: 6500 },
+            { id: 2, name: "Papas Fritas Grandes", category: "Comidas", price: 3800 },
+            { id: 3, name: "Pizza Mozzarella", category: "Comidas", price: 7500 },
+            { id: 4, name: "Empanada de Carne", category: "Comidas", price: 1200 },
+            { id: 5, name: "Cerveza Tirada 500cc", category: "Bebidas", price: 2800 },
+            { id: 6, name: "Gaseosa 500ml", category: "Bebidas", price: 1800 },
+            { id: 7, name: "Agua Mineral", category: "Bebidas", price: 1400 },
+            { id: 8, name: "Flan Casero con Dulce", category: "Postres", price: 2500 }
+        ];
+
+        const DEFAULT_TABLES = [
+            { id: 1, name: "Mesa 1", status: "free", order: [], sentAt: null },
+            { id: 2, name: "Mesa 2", status: "free", order: [], sentAt: null },
+            { id: 3, name: "Mesa 3", status: "free", order: [], sentAt: null },
+            { id: 4, name: "Mesa 4", status: "free", order: [], sentAt: null },
+            { id: 5, name: "Barra 1", status: "free", order: [], sentAt: null }
+        ];
+
+        let menu = JSON.parse(localStorage.getItem('comanda_menu')) || DEFAULT_MENU;
+        let tables = JSON.parse(localStorage.getItem('comanda_tables')) || DEFAULT_TABLES;
+        let ventasDia = JSON.parse(localStorage.getItem('comanda_ventas_dia')) || [];
+        let activeTableId = null;
+        let activeCategory = "Todos";
+        let html5QrScanner = null;
+        let isRemoteUpdate = false;
+
+        // Configuración de Servidor Relay Cloud para sincronización remota instantánea
+        const CLOUD_API_URL = "https://api.jsonbin.io/v3/b";
+        let cloudPollInterval = null;
+
+        window.onload = function() {
+            renderTables();
+            renderCocina();
+            renderMenuAdmin();
+            renderCierreDia();
+            updateCocinaBadge();
+            initCloudSync();
+        };
+
+        function initCloudSync() {
+            if (cloudPollInterval) clearInterval(cloudPollInterval);
+            
+            const roomId = document.getElementById('sync-room-id').value.trim() || 'garage123';
+            setSyncStatus('connecting');
+
+            // Suscripción de sondeo y transmisión en tiempo real ultra ligera
+            cloudPollInterval = setInterval(() => {
+                fetchCloudData(roomId);
+            }, 2500);
+
+            fetchCloudData(roomId);
+        }
+
+        function setSyncStatus(status) {
+            const indicator = document.getElementById('sync-status-indicator');
+            if (status === 'connected') {
+                indicator.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+                indicator.title = "Conectado al servidor en vivo";
+            } else if (status === 'connecting') {
+                indicator.className = "w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping";
+                indicator.title = "Sincronizando con servidor...";
+            } else {
+                indicator.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+                indicator.title = "Sin conexión al servidor";
+            }
+        }
+
+        async function fetchCloudData(roomId) {
+            try {
+                const res = await fetch(`https://ntfy.sh/garagebar_sync_${roomId}/raw`, { cache: 'no-cache' });
+                if (res.ok) {
+                    const text = await res.text();
+                    if (text && text.trim().startsWith('{')) {
+                        const cloudState = JSON.parse(text);
+                        if (cloudState && cloudState.timestamp && cloudState.timestamp > (window.lastCloudTs || 0)) {
+                            window.lastCloudTs = cloudState.timestamp;
+                            isRemoteUpdate = true;
+                            tables = cloudState.tables || tables;
+                            menu = cloudState.menu || menu;
+                            ventasDia = cloudState.ventasDia || ventasDia;
+                            saveData(false);
+                            renderTables();
+                            renderCocina();
+                            renderMenuAdmin();
+                            renderCierreDia();
+                            isRemoteUpdate = false;
+                        }
+                    }
+                }
+                setSyncStatus('connected');
+            } catch(e) {
+                setSyncStatus('connecting');
+            }
+        }
+
+        async function pushCloudData() {
+            if (isRemoteUpdate) return;
+            const roomId = document.getElementById('sync-room-id').value.trim() || 'garage123';
+            const timestamp = Date.now();
+            window.lastCloudTs = timestamp;
+
+            const payload = {
+                timestamp: timestamp,
+                tables: tables,
+                menu: menu,
+                ventasDia: ventasDia
+            };
+
+            try {
+                setSyncStatus('connecting');
+                await fetch(`https://ntfy.sh/garagebar_sync_${roomId}`, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                setSyncStatus('connected');
+            } catch(e) {
+                setSyncStatus('connecting');
+            }
+        }
+
+        function forceCloudSync() {
+            const roomId = document.getElementById('sync-room-id').value.trim() || 'garage123';
+            fetchCloudData(roomId);
+            pushCloudData();
+            showToast("Datos sincronizados con la nube", "fa-cloud-arrow-up");
+        }
+
+        function saveData(syncToCloud = true) {
+            localStorage.setItem('comanda_menu', JSON.stringify(menu));
+            localStorage.setItem('comanda_tables', JSON.stringify(tables));
+            localStorage.setItem('comanda_ventas_dia', JSON.stringify(ventasDia));
+            updateCocinaBadge();
+            if (syncToCloud) {
+                pushCloudData();
+            }
+        }
+
+        function switchView(viewName) {
+            document.getElementById('view-tables').classList.add('hidden');
+            document.getElementById('view-kitchen').classList.add('hidden');
+            document.getElementById('view-menu').classList.add('hidden');
+            document.getElementById('view-cierre').classList.add('hidden');
+
+            document.getElementById('nav-tables').className = "px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-slate-300";
+            document.getElementById('nav-kitchen').className = "relative px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-slate-300";
+            document.getElementById('nav-menu').className = "px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-slate-300";
+            document.getElementById('nav-cierre').className = "px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg hover:bg-slate-800 transition flex items-center space-x-2 text-emerald-400";
+
+            if (viewName === 'tables') {
+                document.getElementById('view-tables').classList.remove('hidden');
+                document.getElementById('nav-tables').className = "px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition flex items-center space-x-2 bg-indigo-600 text-white shadow";
+                renderTables();
+            } else if (viewName === 'kitchen') {
+                document.getElementById('view-kitchen').classList.remove('hidden');
+                document.getElementById('nav-kitchen').className = "relative px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition flex items-center space-x-2 bg-indigo-600 text-white shadow";
+                renderCocina();
+            } else if (viewName === 'menu') {
+                document.getElementById('view-menu').classList.remove('hidden');
+                document.getElementById('nav-menu').className = "px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition flex items-center space-x-2 bg-indigo-600 text-white shadow";
+                renderMenuAdmin();
+            } else if (viewName === 'cierre') {
+                document.getElementById('view-cierre').classList.remove('hidden');
+                document.getElementById('nav-cierre').className = "px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition flex items-center space-x-2 bg-emerald-600 text-white shadow";
+                renderCierreDia();
+            }
+        }
+
+        function renderTables() {
+            const grid = document.getElementById('tables-grid');
+            grid.innerHTML = '';
+
+            tables.forEach(table => {
+                const total = table.order.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                let statusBg = "bg-emerald-500";
+                let statusText = "Libre";
+                let statusBadge = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+
+                if (table.status === 'pending') {
+                    statusBg = "bg-amber-500";
+                    statusText = "Pendiente";
+                    statusBadge = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                } else if (table.status === 'cooking') {
+                    statusBg = "bg-blue-500";
+                    statusText = "En Cocina";
+                    statusBadge = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
+                } else if (table.status === 'ready') {
+                    statusBg = "bg-purple-500";
+                    statusText = "Listo p/ Servir";
+                    statusBadge = "bg-purple-500/10 text-purple-400 border border-purple-500/20 animate-pulse";
+                } else if (table.status === 'served') {
+                    statusBg = "bg-indigo-500";
+                    statusText = "Servido / Ocupado";
+                    statusBadge = "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20";
+                }
+
+                const card = document.createElement('div');
+                card.className = "bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between h-44 hover:border-slate-700 transition shadow-md cursor-pointer";
+                card.onclick = () => openOrderModal(table.id);
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center space-x-2">
+                            <i class="fa-solid fa-chair text-slate-400"></i>
+                            <h3 class="font-bold text-slate-100 text-base">${table.name}</h3>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge}">${statusText}</span>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-xs text-slate-400">Ítems pedidos: <span class="text-slate-200 font-semibold">${table.order.length}</span></div>
+                        <div class="text-xs text-slate-400">Total acumulado:</div>
+                        <div class="text-xl font-bold text-amber-400">$${total.toFixed(2)}</div>
+                    </div>
+                    <div class="pt-2 border-t border-slate-900 flex justify-end">
+                        <span class="text-[11px] text-indigo-400 font-semibold hover:underline">Tomar / Editar Comanda &rarr;</span>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function openAddTableModal() {
+            document.getElementById('new-table-name').value = '';
+            document.getElementById('modal-add-table').classList.remove('hidden');
+        }
+
+        function closeAddTableModal() {
+            document.getElementById('modal-add-table').classList.add('hidden');
+        }
+
+        function saveNewTable() {
+            const name = document.getElementById('new-table-name').value.trim();
+            if (!name) return;
+
+            tables.push({
+                id: Date.now(),
+                name: name,
+                status: 'free',
+                order: [],
+                sentAt: null
+            });
+
+            saveData();
+            renderTables();
+            closeAddTableModal();
+            showToast(`Mesa "${name}" creada`, 'fa-plus');
+        }
+
+        function openOrderModal(tableId) {
+            activeTableId = tableId;
+            const table = tables.find(t => t.id === tableId);
+            if (!table) return;
+
+            document.getElementById('modal-table-title').textContent = table.name;
+            updateModalStatusBadge(table.status);
+
+            renderCategoryTabs();
+            renderMenuGrid();
+            renderOrderItems();
+
+            document.getElementById('modal-order').classList.remove('hidden');
+        }
+
+        function closeOrderModal() {
+            document.getElementById('modal-order').classList.add('hidden');
+            activeTableId = null;
+            renderTables();
+        }
+
+        function updateModalStatusBadge(status) {
+            const badge = document.getElementById('modal-table-status-badge');
+            if (status === 'free') {
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-emerald-500 text-white";
+                badge.textContent = "Libre";
+            } else if (status === 'pending') {
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-amber-500 text-white";
+                badge.textContent = "Pendiente";
+            } else if (status === 'cooking') {
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-blue-500 text-white";
+                badge.textContent = "En Cocina";
+            } else if (status === 'ready') {
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-purple-500 text-white";
+                badge.textContent = "Listo p/ Servir";
+            } else if (status === 'served') {
+                badge.className = "text-xs px-2.5 py-1 rounded-full font-semibold bg-indigo-500 text-white";
+                badge.textContent = "Servido / Ocupado";
+            }
+        }
+
+        function renderCategoryTabs() {
+            const categories = ["Todos", ...new Set(menu.map(item => item.category))];
+            const container = document.getElementById('category-tabs');
+            container.innerHTML = '';
+
+            categories.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = `px-3 py-1.5 text-xs font-semibold rounded-xl whitespace-nowrap transition ${activeCategory === cat ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-slate-950 text-slate-300 hover:bg-slate-800'}`;
+                btn.textContent = cat;
+                btn.onclick = () => {
+                    activeCategory = cat;
+                    renderCategoryTabs();
+                    renderMenuGrid();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function renderMenuGrid() {
+            const grid = document.getElementById('menu-grid');
+            grid.innerHTML = '';
+
+            const filteredMenu = activeCategory === "Todos" 
+                ? menu 
+                : menu.filter(item => item.category === activeCategory);
+
+            filteredMenu.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "bg-slate-950 p-3 rounded-xl border border-slate-800 hover:border-amber-500/50 cursor-pointer transition flex flex-col justify-between";
+                card.onclick = () => addItemToOrder(item.name, item.price);
+                card.innerHTML = `
+                    <div>
+                        <span class="text-[10px] font-bold uppercase text-slate-500 block">${item.category}</span>
+                        <h4 class="font-bold text-slate-100 text-xs leading-snug">${item.name}</h4>
+                    </div>
+                    <div class="mt-2 flex justify-between items-center">
+                        <span class="font-bold text-amber-400 text-xs">$${item.price.toFixed(2)}</span>
+                        <span class="bg-amber-500/10 text-amber-400 p-1 rounded-lg text-xs">
+                            <i class="fa-solid fa-plus"></i>
+                        </span>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function addItemToOrder(name, price) {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table) return;
+
+            const existingItem = table.order.find(i => i.name === name && !i.notes);
+            if (existingItem) {
+                existingItem.quantity += 1;
+            } else {
+                table.order.push({
+                    id: Date.now() + Math.random(),
+                    name: name,
+                    price: price,
+                    quantity: 1,
+                    notes: ""
+                });
+            }
+
+            if (table.status === 'free') {
+                table.status = 'pending';
+            }
+
+            saveData();
+            updateModalStatusBadge(table.status);
+            renderOrderItems();
+        }
+
+        function addCustomItemToOrder() {
+            const nameInput = document.getElementById('custom-item-name');
+            const priceInput = document.getElementById('custom-item-price');
+
+            const name = nameInput.value.trim();
+            const price = parseFloat(priceInput.value);
+
+            if (!name || isNaN(price) || price < 0) return;
+
+            addItemToOrder(name, price);
+            nameInput.value = '';
+            priceInput.value = '';
+        }
+
+        function renderOrderItems() {
+            const table = tables.find(t => t.id === activeTableId);
+            const container = document.getElementById('order-items-list');
+            container.innerHTML = '';
+
+            if (!table || table.order.length === 0) {
+                container.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-slate-500 py-8">
+                        <i class="fa-solid fa-basket-shopping text-3xl mb-2"></i>
+                        <p class="text-xs">No hay productos en la comanda</p>
+                    </div>
+                `;
+                document.getElementById('order-total').textContent = '$0.00';
+                return;
+            }
+
+            table.order.forEach(item => {
+                const el = document.createElement('div');
+                el.className = "bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-2";
+                
+                el.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1 pr-2">
+                            <span class="font-bold text-slate-100 text-xs sm:text-sm block leading-tight">${item.name}</span>
+                            <span class="text-xs font-semibold text-amber-400">$${item.price.toFixed(2)}</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5 bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">
+                            <button onclick="updateItemQuantity(${item.id}, -1)" class="text-slate-400 hover:text-red-400 px-1 font-bold text-xs">-</button>
+                            <span class="text-xs font-bold text-slate-100 w-4 text-center">${item.quantity}</span>
+                            <button onclick="updateItemQuantity(${item.id}, 1)" class="text-slate-400 hover:text-emerald-400 px-1 font-bold text-xs">+</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2 pt-1">
+                        <i class="fa-solid fa-pen-to-square text-slate-500 text-xs"></i>
+                        <input type="text" placeholder="Nota / Observaciones" value="${item.notes || ''}" 
+                            onchange="updateItemNotes(${item.id}, this.value)"
+                            class="flex-1 text-xs bg-transparent border-b border-slate-800 focus:outline-none focus:border-amber-400 px-1 text-slate-300">
+                        <button onclick="removeItemFromOrder(${item.id})" class="text-slate-500 hover:text-red-400 text-xs px-1">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+
+            const total = table.order.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            document.getElementById('order-total').textContent = `$${total.toFixed(2)}`;
+        }
+
+        function updateItemQuantity(itemId, delta) {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table) return;
+
+            const item = table.order.find(i => i.id === itemId);
+            if (!item) return;
+
+            item.quantity += delta;
+            if (item.quantity <= 0) {
+                table.order = table.order.filter(i => i.id !== itemId);
+            }
+
+            if (table.order.length === 0 && table.status === 'pending') {
+                table.status = 'free';
+            }
+
+            saveData();
+            updateModalStatusBadge(table.status);
+            renderOrderItems();
+        }
+
+        function updateItemNotes(itemId, notesText) {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table) return;
+            const item = table.order.find(i => i.id === itemId);
+            if (item) {
+                item.notes = notesText;
+                saveData();
+            }
+        }
+
+        function removeItemFromOrder(itemId) {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table) return;
+
+            table.order = table.order.filter(i => i.id !== itemId);
+            if (table.order.length === 0 && table.status === 'pending') {
+                table.status = 'free';
+            }
+
+            saveData();
+            updateModalStatusBadge(table.status);
+            renderOrderItems();
+        }
+
+        function sendOrderToKitchen() {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table || table.order.length === 0) return;
+
+            table.status = 'cooking';
+            table.sentAt = new Date().toISOString();
+            saveData();
+
+            // Generar payload comprimido para el QR
+            const payload = {
+                tName: table.name,
+                order: table.order.map(i => ({ n: i.name, p: i.price, q: i.quantity, nt: i.notes || '' })),
+                sentAt: table.sentAt
+            };
+            const jsonString = JSON.stringify(payload);
+
+            document.getElementById('qr-table-title').textContent = table.name;
+            document.getElementById('qr-manual-code').textContent = btoa(unescape(encodeURIComponent(jsonString)));
+
+            const qrContainer = document.getElementById('qrcode-container');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: jsonString,
+                width: 180,
+                height: 180
+            });
+
+            closeOrderModal();
+            document.getElementById('modal-qr-display').classList.remove('hidden');
+            showToast(`Comanda de ${table.name} lista para escanear`, 'fa-qrcode');
+        }
+
+        function closeQRDisplayModal() {
+            document.getElementById('modal-qr-display').classList.add('hidden');
+            renderTables();
+        }
+
+        function openScanQRModal() {
+            document.getElementById('modal-qr-scan').classList.remove('hidden');
+            document.getElementById('manual-code-input').value = '';
+
+            setTimeout(() => {
+                if (!html5QrScanner) {
+                    html5QrScanner = new Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: 220 });
+                    html5QrScanner.render((decodedText) => {
+                        applyScannedPayload(decodedText);
+                        closeScanQRModal();
+                    }, (error) => {});
+                }
+            }, 300);
+        }
+
+        function closeScanQRModal() {
+            if (html5QrScanner) {
+                html5QrScanner.clear().catch(e => {});
+                html5QrScanner = null;
+            }
+            document.getElementById('modal-qr-scan').classList.add('hidden');
+        }
+
+        function processManualCode() {
+            const input = document.getElementById('manual-code-input').value.trim();
+            if (!input) return;
+            try {
+                const decodedJson = decodeURIComponent(escape(atob(input)));
+                applyScannedPayload(decodedJson);
+                closeScanQRModal();
+            } catch(e) {
+                showToast("Código inválido", "fa-triangle-exclamation");
+            }
+        }
+
+        function applyScannedPayload(jsonString) {
+            try {
+                const data = JSON.parse(jsonString);
+                let targetTable = tables.find(t => t.name.toLowerCase() === data.tName.toLowerCase());
+
+                if (!targetTable) {
+                    targetTable = {
+                        id: Date.now(),
+                        name: data.tName,
+                        status: 'cooking',
+                        order: [],
+                        sentAt: data.sentAt || new Date().toISOString()
+                    };
+                    tables.push(targetTable);
+                }
+
+                targetTable.status = 'cooking';
+                targetTable.sentAt = data.sentAt || new Date().toISOString();
+                targetTable.order = data.order.map(i => ({
+                    id: Date.now() + Math.random(),
+                    name: i.n,
+                    price: i.p,
+                    quantity: i.q,
+                    notes: i.nt
+                }));
+
+                saveData();
+                renderTables();
+                renderCocina();
+                showToast(`¡Comanda de ${data.tName} recibida con éxito!`, 'fa-circle-check');
+            } catch(e) {
+                showToast("Error al procesar el QR de la comanda", "fa-triangle-exclamation");
+            }
+        }
+
+        function marcarMesaServida() {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table) return;
+
+            table.status = 'served';
+            saveData();
+            updateModalStatusBadge(table.status);
+            showToast(`${table.name} marcada como servida`, 'fa-utensils');
+        }
+
+        function renderCocina() {
+            const container = document.getElementById('kitchen-orders-container');
+            container.innerHTML = '';
+
+            const activeKitchenTables = tables.filter(t => t.status === 'cooking' || t.status === 'ready');
+            activeKitchenTables.sort((a, b) => new Date(a.sentAt) - new Date(b.sentAt));
+
+            if (activeKitchenTables.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full py-12 flex flex-col items-center justify-center text-slate-500 bg-slate-950 rounded-2xl border border-dashed border-slate-800">
+                        <i class="fa-solid fa-check-double text-3xl mb-2 text-slate-600"></i>
+                        <p class="font-bold text-sm">No hay comandas pendientes en cocina</p>
+                    </div>
+                `;
+                return;
+            }
+
+            activeKitchenTables.forEach(table => {
+                const elapsedMinutes = table.sentAt ? Math.floor((new Date() - new Date(table.sentAt)) / 60000) : 0;
+                const card = document.createElement('div');
+                card.className = `bg-slate-950 rounded-2xl border ${table.status === 'ready' ? 'border-purple-500/50' : 'border-blue-500/50'} overflow-hidden flex flex-col justify-between shadow-lg`;
+
+                let itemsHtml = table.order.map(item => `
+                    <li class="py-2 flex justify-between items-start border-b border-slate-900 last:border-0">
+                        <div>
+                            <span class="font-bold text-amber-400 text-sm">${item.quantity}x</span>
+                            <span class="font-semibold text-slate-200 text-sm ml-1">${item.name}</span>
+                            ${item.notes ? `<div class="text-xs text-red-400 font-semibold mt-0.5"><i class="fa-regular fa-comment-dots mr-1"></i>${item.notes}</div>` : ''}
+                        </div>
+                    </li>
+                `).join('');
+
+                card.innerHTML = `
+                    <div>
+                        <div class="${table.status === 'ready' ? 'bg-purple-600' : 'bg-blue-600'} text-white p-3 flex justify-between items-center">
+                            <span class="font-bold text-base">${table.name}</span>
+                            <span class="text-xs bg-black/30 px-2 py-1 rounded-lg font-mono">
+                                <i class="fa-regular fa-clock mr-1"></i>${elapsedMinutes} min
+                            </span>
+                        </div>
+                        <ul class="p-4 divide-y divide-slate-900 max-h-60 overflow-y-auto">
+                            ${itemsHtml}
+                        </ul>
+                    </div>
+                    <div class="p-3 bg-slate-900 border-t border-slate-800 flex gap-2">
+                        ${table.status === 'cooking' ? `
+                            <button onclick="markTableStatusFromKitchen(${table.id}, 'ready')" class="w-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5 shadow-md">
+                                <i class="fa-solid fa-bell"></i>
+                                <span>Listo para Servir</span>
+                            </button>
+                        ` : `
+                            <button onclick="markTableStatusFromKitchen(${table.id}, 'served')" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center space-x-1.5 shadow-md">
+                                <i class="fa-solid fa-check"></i>
+                                <span>Servido / Ocupado</span>
+                            </button>
+                        `}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function markTableStatusFromKitchen(tableId, newStatus) {
+            const table = tables.find(t => t.id === tableId);
+            if (!table) return;
+
+            table.status = newStatus;
+            saveData();
+            renderCocina();
+            renderTables();
+            showToast(`Estado de ${table.name} actualizado`, 'fa-bell');
+        }
+
+        function updateCocinaBadge() {
+            const count = tables.filter(t => t.status === 'cooking').length;
+            const badge = document.getElementById('kitchen-badge');
+            if (count > 0) {
+                badge.textContent = count;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function renderMenuAdmin() {
+            const tbody = document.getElementById('menu-table-body');
+            tbody.innerHTML = '';
+
+            menu.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-900/50 transition";
+                tr.innerHTML = `
+                    <td class="p-3"><span class="bg-slate-900 text-slate-300 border border-slate-800 text-xs px-2.5 py-1 rounded-lg font-semibold">${item.category}</span></td>
+                    <td class="p-3 font-semibold text-slate-200">${item.name}</td>
+                    <td class="p-3 font-bold text-amber-400">$${item.price.toFixed(2)}</td>
+                    <td class="p-3 text-right">
+                        <button onclick="deleteMenuItem(${item.id})" class="text-slate-500 hover:text-red-400 p-1">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function openAddItemModal() {
+            document.getElementById('new-item-name').value = '';
+            document.getElementById('new-item-price').value = '';
+            document.getElementById('modal-add-item').classList.remove('hidden');
+        }
+
+        function closeAddItemModal() {
+            document.getElementById('modal-add-item').classList.add('hidden');
+        }
+
+        function saveNewMenuItem() {
+            const category = document.getElementById('new-item-category').value;
+            const name = document.getElementById('new-item-name').value.trim();
+            const price = parseFloat(document.getElementById('new-item-price').value);
+
+            if (!name || isNaN(price) || price <= 0) return;
+
+            menu.push({ id: Date.now(), name, category, price });
+            saveData();
+            renderMenuAdmin();
+            closeAddItemModal();
+            showToast(`"${name}" agregado a la carta`, 'fa-plus');
+        }
+
+        function deleteMenuItem(id) {
+            menu = menu.filter(item => item.id !== id);
+            saveData();
+            renderMenuAdmin();
+            showToast("Producto eliminado", 'fa-trash-can');
+        }
+
+        function openTicketModal() {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table || table.order.length === 0) return;
+
+            document.getElementById('ticket-table-name').textContent = table.name;
+            document.getElementById('ticket-date').textContent = new Date().toLocaleString('es-AR');
+
+            const tbody = document.getElementById('ticket-items-body');
+            tbody.innerHTML = '';
+
+            table.order.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="py-1 font-bold">${item.quantity}</td>
+                    <td class="py-1">${item.name}</td>
+                    <td class="py-1 text-right font-bold">$${(item.price * item.quantity).toFixed(2)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            const total = table.order.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            document.getElementById('ticket-total-amount').textContent = `$${total.toFixed(2)}`;
+
+            document.getElementById('modal-ticket').classList.remove('hidden');
+        }
+
+        function closeTicketModal() {
+            document.getElementById('modal-ticket').classList.add('hidden');
+        }
+
+        function printTicket() {
+            window.print();
+        }
+
+        function checkoutAndFreeTable() {
+            const table = tables.find(t => t.id === activeTableId);
+            if (!table) return;
+
+            const total = table.order.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const totalItems = table.order.reduce((sum, item) => sum + item.quantity, 0);
+
+            ventasDia.push({
+                hora: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                mesa: table.name,
+                itemsCount: totalItems,
+                detalle: table.order.map(i => `${i.quantity}x ${i.name}`).join(', '),
+                total: total
+            });
+
+            table.status = 'free';
+            table.order = [];
+            table.sentAt = null;
+
+            saveData();
+            closeTicketModal();
+            closeOrderModal();
+            renderTables();
+            showToast(`${table.name} cobrada y liberada`, 'fa-check');
+        }
+
+        function renderCierreDia() {
+            const tbody = document.getElementById('cierre-table-body');
+            tbody.innerHTML = '';
+
+            let totalMonto = 0;
+            let totalItemsCount = 0;
+
+            ventasDia.forEach(venta => {
+                totalMonto += venta.total;
+                totalItemsCount += venta.itemsCount;
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-900/50 transition";
+                tr.innerHTML = `
+                    <td class="p-3 text-slate-400 font-mono text-xs">${venta.hora}</td>
+                    <td class="p-3 font-bold text-slate-200">${venta.mesa}</td>
+                    <td class="p-3 text-slate-300 text-xs">${venta.detalle}</td>
+                    <td class="p-3 text-right font-bold text-emerald-400">$${venta.total.toFixed(2)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('cierre-total-monto').textContent = `$${totalMonto.toFixed(2)}`;
+            document.getElementById('cierre-total-mesas').textContent = ventasDia.length;
+            document.getElementById('cierre-total-items').textContent = totalItemsCount;
+        }
+
+        function exportarExcelCierre() {
+            if (ventasDia.length === 0) {
+                showToast("No hay ventas registradas para exportar", "fa-file-excel");
+                return;
+            }
+
+            const dataFormatted = ventasDia.map(v => ({
+                Hora: v.hora,
+                Mesa: v.mesa,
+                Detalle: v.detalle,
+                "Cantidad Items": v.itemsCount,
+                Total: v.total
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataFormatted);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Ventas_Del_Dia");
+
+            const fecha = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(workbook, `Cierre_ElGarageBar_${fecha}.xlsx`);
+        }
+
+        function reiniciarDia() {
+            if (!confirm("¿Seguro que deseas reiniciar todas las ventas del día?")) return;
+            ventasDia = [];
+            saveData();
+            renderCierreDia();
+            showToast("Cierre de caja reiniciado", "fa-rotate-left");
+        }
+
+        function showToast(message, iconClass = 'fa-info-circle') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = "bg-slate-950 text-slate-100 border border-slate-800 px-4 py-3 rounded-xl shadow-2xl text-xs font-semibold flex items-center space-x-2.5 transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-auto";
+            toast.innerHTML = `<i class="fa-solid ${iconClass} text-amber-400"></i><span>${message}</span>`;
+
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 10);
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
